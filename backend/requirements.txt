@@ -1,0 +1,8 @@
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+pydantic>=2.10,<3
+openai>=1.59,<2
+mcp>=1.27,<2
+# Pinned for the bundled Tree-sitter language grammars.
+tree-sitter==0.21.3
+tree-sitter-languages==1.10.2
