@@ -18,6 +18,7 @@ from .benchmark import evaluate_repository
 from .github import GitHubClient
 from .indexer import index_repository
 from .issue_matching import recommend_issues
+from .impact import analyze_repository
 from .github_actions import action_payload_hash
 from .llm import generate_code_fix
 from .mcp_client import call_approved_github_action
@@ -154,6 +155,23 @@ def repository(owner: str, name: str, current_user: Dict = Depends(get_current_u
     if row is None:
         raise HTTPException(status_code=404, detail="Repository has not been indexed.")
     return row
+
+
+@app.get("/impact")
+def repository_impact(
+    repo_id: str = Query(min_length=3, max_length=300),
+    path: Optional[str] = Query(default=None, max_length=1000),
+    symbol: Optional[str] = Query(default=None, max_length=300),
+    start_line: Optional[int] = Query(default=None, ge=1),
+    current_user: Dict = Depends(get_current_user),
+):
+    repo = db.get_repository(repo_id.lower())
+    if repo is None:
+        raise HTTPException(status_code=404, detail="Repository is not indexed.")
+    return analyze_repository(
+        repo, db.get_indexed_files(repo["id"]), path=path,
+        symbol=symbol, start_line=start_line,
+    )
 
 
 @app.post("/index", response_model=IndexResponse)
@@ -296,9 +314,18 @@ def ask(request: AskRequest, current_user: Dict = Depends(get_current_user)):
         db.list_repository_issues(repo["id"]),
         db.list_recent_commits(repo["id"], 100),
     )
-    retrieved, sufficient = search(request.question, corpus, request.top_k)
+    context_text = "\n".join(
+        "{}: {}".format("Earlier question" if message.role == "user" else "Earlier answer", message.content)
+        for message in request.context
+    )
+    contextual_question = request.question
+    if context_text:
+        contextual_question = "Recent conversation context (not repository evidence):\n{}\n\nCurrent question:\n{}".format(
+            context_text, request.question,
+        )
+    retrieved, sufficient = search(contextual_question, corpus, request.top_k)
     result = answer_question(
-        request.question,
+        contextual_question,
         repo,
         retrieved,
         sufficient,
@@ -376,6 +403,7 @@ def _action_response(proposal: Dict) -> Dict:
         "created_at": proposal["created_at"],
         "approved_at": proposal.get("approved_at"),
         "completed_at": proposal.get("completed_at"),
+        "events": proposal.get("events", []),
     }
 
 

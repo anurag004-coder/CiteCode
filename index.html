@@ -302,6 +302,7 @@
             <button class="dashboard-nav-item" type="button" data-dashboard-view="issues"><span>#</span> Good first issues</button>
             <div class="sidebar-divider"></div>
             <span class="sidebar-label sidebar-label-sub">REPOSITORY</span>
+            <button class="dashboard-nav-item" type="button" data-dashboard-view="impact"><span>⌁</span> Potential impact</button>
             <button class="dashboard-nav-item" type="button" data-dashboard-view="changes"><span>⟳</span> Changes</button>
             <button class="dashboard-nav-item" type="button" data-dashboard-view="actions"><span>✓</span> Action approvals</button>
             <button class="dashboard-nav-item" type="button" data-dashboard-view="evaluation"><span>⌁</span> Evaluation</button>
@@ -346,8 +347,9 @@
               <label for="ask-repo">Repository</label><select id="ask-repo" required><option value="">Index a repository first</option></select>
               <label for="ask-question">Your question</label><textarea id="ask-question" rows="4" required maxlength="2000" placeholder="Where is authentication checked, and what happens if the session is missing?"></textarea>
               <label for="ask-language">Answer language</label><select id="ask-language"><option value="">Use saved explanation language</option><option>English</option><option>Hindi</option><option>Bengali</option><option>Spanish</option><option>French</option><option>German</option><option>Portuguese</option><option>Japanese</option><option>Chinese</option></select>
-              <div class="ask-form-footer"><span>Weak evidence returns a refusal instead of a guess.</span><button class="button button-dark" type="submit">Find evidence <span aria-hidden="true">↗</span></button></div>
+              <div class="ask-form-footer"><span>Follow-ups use recent context, then retrieve and cite fresh evidence.</span><div class="ask-controls"><button id="ask-reset" class="button button-light" type="button" disabled>Start over</button><button class="button button-dark" type="submit">Find evidence <span aria-hidden="true">↗</span></button></div></div>
             </form>
+            <div id="ask-conversation" class="ask-conversation" aria-live="polite"></div>
             <div id="answer-result" class="answer-result" aria-live="polite"></div>
           </section>
 
@@ -397,6 +399,17 @@
               <div class="ask-form-footer"><span>Preparing a proposal does not contact GitHub.</span><button class="button button-dark" type="submit">Prepare for review <span aria-hidden="true">↗</span></button></div>
             </form>
             <div id="action-results" class="action-results" aria-live="polite"></div>
+          </section>
+
+          <section class="dashboard-view" data-app-view="impact" hidden>
+            <div class="app-view-heading"><span class="section-kicker">STATIC CALL-SITE SCAN</span><h2>Potential impact</h2><p>Choose a Python or JavaScript definition to find direct callers and likely affected tests in the indexed snapshot.</p></div>
+            <div class="action-connection impact-caveat" role="note">Potential impact only. Static call analysis can miss dynamic calls, and matching names can resolve ambiguously.</div>
+            <form id="impact-form" class="ask-form impact-form">
+              <label for="impact-repo">Repository</label><select id="impact-repo" required><option value="">Index a repository first</option></select>
+              <label for="impact-target">Function or class</label><select id="impact-target" required disabled><option value="">Choose a repository first</option></select>
+              <div class="ask-form-footer"><span>Scans Python and JavaScript call expressions at the indexed commit.</span><button class="button button-dark" type="submit">Find potential impact <span aria-hidden="true">â†—</span></button></div>
+            </form>
+            <div id="impact-results" class="impact-results" aria-live="polite"></div>
           </section>
 
           <section class="dashboard-view" data-app-view="evaluation" hidden>

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional
 
 from .config import DATABASE_PATH, DATA_DIR
@@ -128,6 +129,16 @@ CREATE TABLE IF NOT EXISTS github_action_proposals (
     completed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_github_proposals_user ON github_action_proposals(user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS github_action_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    proposal_id TEXT NOT NULL REFERENCES github_action_proposals(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    detail TEXT,
+    readback_verified INTEGER,
+    readback_detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_github_action_events_proposal ON github_action_events(proposal_id, id);
 CREATE TABLE IF NOT EXISTS repository_benchmark_sets (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -600,6 +611,33 @@ def create_github_proposal(proposal: Dict) -> None:
              json.dumps(proposal["payload"], sort_keys=True, separators=(",", ":")),
              proposal["payload_hash"], proposal["created_at"]),
         )
+        _insert_github_action_event(connection, proposal["id"], "proposed", proposal["created_at"])
+
+
+def _insert_github_action_event(connection, proposal_id: str, event_type: str, occurred_at: str,
+                                detail: Optional[str] = None, result: Optional[Dict] = None) -> None:
+    result = result or {}
+    verified = result.get("read_after_write_verified")
+    connection.execute(
+        """INSERT INTO github_action_events
+           (proposal_id, event_type, occurred_at, detail, readback_verified, readback_detail)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (proposal_id, event_type, occurred_at, detail,
+         None if verified is None else int(bool(verified)), result.get("verification_detail")),
+    )
+
+
+def _github_action_events(connection, proposal_id: str) -> List[Dict]:
+    rows = connection.execute(
+        """SELECT event_type, occurred_at, detail, readback_verified, readback_detail
+           FROM github_action_events WHERE proposal_id=? ORDER BY id""",
+        (proposal_id,),
+    ).fetchall()
+    events = [dict(row) for row in rows]
+    for event in events:
+        if event["readback_verified"] is not None:
+            event["readback_verified"] = bool(event["readback_verified"])
+    return events
 
 
 def _decode_github_proposal(row: sqlite3.Row) -> Dict:
@@ -613,7 +651,11 @@ def _decode_github_proposal(row: sqlite3.Row) -> Dict:
 def get_github_proposal(proposal_id: str) -> Optional[Dict]:
     with connect() as connection:
         row = connection.execute("SELECT * FROM github_action_proposals WHERE id = ?", (proposal_id,)).fetchone()
-    return _decode_github_proposal(row) if row else None
+        if not row:
+            return None
+        item = _decode_github_proposal(row)
+        item["events"] = _github_action_events(connection, proposal_id)
+    return item
 
 
 def list_github_proposals(user_id: str, limit: int = 50) -> List[Dict]:
@@ -622,7 +664,10 @@ def list_github_proposals(user_id: str, limit: int = 50) -> List[Dict]:
             "SELECT * FROM github_action_proposals WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
             (user_id, limit),
         ).fetchall()
-    return [_decode_github_proposal(row) for row in rows]
+        proposals = [_decode_github_proposal(row) for row in rows]
+        for proposal in proposals:
+            proposal["events"] = _github_action_events(connection, proposal["id"])
+    return proposals
 
 
 def approve_github_proposal(proposal_id: str, user_id: str, payload_hash: str, approved_at: str) -> bool:
@@ -632,6 +677,8 @@ def approve_github_proposal(proposal_id: str, user_id: str, payload_hash: str, a
                WHERE id=? AND user_id=? AND status IN ('pending', 'approved') AND payload_hash=?""",
             (approved_at, proposal_id, user_id, payload_hash),
         )
+        if cursor.rowcount == 1:
+            _insert_github_action_event(connection, proposal_id, "approved", approved_at)
     return cursor.rowcount == 1
 
 
@@ -642,6 +689,8 @@ def reject_github_proposal(proposal_id: str, user_id: str, completed_at: str) ->
                WHERE id=? AND user_id=? AND status='pending'""",
             (completed_at, proposal_id, user_id),
         )
+        if cursor.rowcount == 1:
+            _insert_github_action_event(connection, proposal_id, "rejected", completed_at)
     return cursor.rowcount == 1
 
 
@@ -654,6 +703,7 @@ def claim_github_proposal(proposal_id: str, payload_hash: str) -> Optional[Dict]
         )
         if cursor.rowcount != 1:
             return None
+        _insert_github_action_event(connection, proposal_id, "execution_started", datetime.now(timezone.utc).isoformat())
         row = connection.execute("SELECT * FROM github_action_proposals WHERE id=?", (proposal_id,)).fetchone()
     return _decode_github_proposal(row) if row else None
 
@@ -661,11 +711,14 @@ def claim_github_proposal(proposal_id: str, payload_hash: str) -> Optional[Dict]
 def finish_github_proposal(proposal_id: str, status: str, completed_at: str,
                            result: Optional[Dict] = None, error: Optional[str] = None) -> None:
     with connect() as connection:
-        connection.execute(
+        cursor = connection.execute(
             """UPDATE github_action_proposals SET status=?, completed_at=?, result_json=?, error=?
                WHERE id=? AND status='executing'""",
             (status, completed_at, json.dumps(result) if result else None, error, proposal_id),
         )
+        if cursor.rowcount == 1 and status in {"completed", "failed"}:
+            detail = error or ("GitHub record saved and read back." if result and result.get("read_after_write_verified") else None)
+            _insert_github_action_event(connection, proposal_id, status, completed_at, detail, result)
 
 
 def create_benchmark_set(dataset: Dict) -> Dict:

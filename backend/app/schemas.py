@@ -197,10 +197,16 @@ class ChangeSummaryResponse(BaseModel):
     gaps: List[str] = Field(default_factory=list)
 
 
+class AskContextMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=1000)
+
+
 class AskRequest(BaseModel):
     repo_id: str = Field(min_length=3, max_length=300)
     question: str = Field(min_length=2, max_length=2000)
     top_k: int = Field(default=8, ge=1, le=12)
+    context: List[AskContextMessage] = Field(default_factory=list, max_length=6)
     explanation_language: Optional[Literal[
         "English", "Hindi", "Bengali", "Spanish", "French", "German", "Portuguese",
         "Japanese", "Chinese",

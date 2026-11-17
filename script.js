@@ -117,12 +117,14 @@ const dashboardTitles = {
   onboarding: "Onboarding guide",
   issues: "Good first issues",
   changes: "Changes",
+  impact: "Potential impact",
   actions: "Action approvals",
   evaluation: "Evaluation",
 };
 let dashboardUser = null;
 let dashboardLoaded = false;
 let indexedRepositories = [];
+const askConversations = new Map();
 
 async function apiRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -173,6 +175,7 @@ function showDashboardView(viewName, { refreshActions = true } = {}) {
     if (repoId) loadSavedChanges(repoId);
   }
   if (name === "actions" && refreshActions) loadActions();
+  if (name === "impact") loadImpactTargets();
 }
 
 function setDashboardMessage(message, isError = false) {
@@ -463,6 +466,31 @@ function renderActionProposals(data) {
       card.append(makeElement("pre", "action-payload-preview", JSON.stringify(proposal.payload, null, 2)));
     }
     card.append(hash, created);
+    const timeline = makeElement("section", "action-timeline");
+    timeline.append(makeElement("h4", "", "Action history"));
+    const eventNames = {
+      proposed: "Proposed",
+      approved: "Approved",
+      rejected: "Rejected",
+      execution_started: "Execution started",
+      completed: "Completed",
+      failed: "Failed",
+    };
+    (proposal.events || []).forEach((event) => {
+      const item = makeElement("div", `action-event event-${event.event_type}`);
+      const heading = makeElement("strong", "", eventNames[event.event_type] || event.event_type.replaceAll("_", " "));
+      const when = makeElement("time", "", new Date(event.occurred_at).toLocaleString());
+      when.dateTime = event.occurred_at;
+      item.append(heading, when);
+      if (event.detail) item.append(makeElement("p", "", event.detail));
+      if (["completed", "failed"].includes(event.event_type)) {
+        item.append(makeElement("p", `action-event-readback ${event.readback_verified ? "is-confirmed" : ""}`,
+          `Read-back ${event.readback_verified === null || event.readback_verified === undefined
+            ? "not recorded" : event.readback_verified ? "confirmed" : "not confirmed"}${event.readback_detail ? ` · ${event.readback_detail}` : ""}`));
+      }
+      timeline.append(item);
+    });
+    card.append(timeline);
     if (proposal.status === "pending") {
       const controls = makeElement("div", "approval-controls");
       const approvalLabel = document.createElement("label");
@@ -531,6 +559,104 @@ async function loadActions() {
     if (container) container.textContent = error.message;
   }
 }
+
+async function loadImpactTargets() {
+  const repository = document.querySelector("#impact-repo")?.value;
+  const select = document.querySelector("#impact-target");
+  const results = document.querySelector("#impact-results");
+  if (!select) return;
+  select.replaceChildren();
+  if (!repository) {
+    select.disabled = true;
+    select.append(makeElement("option", "", "Choose a repository first"));
+    return;
+  }
+  select.disabled = true;
+  select.append(makeElement("option", "", "Loading indexed definitions…"));
+  if (results) results.replaceChildren();
+  try {
+    const query = new URLSearchParams({ repo_id: repository });
+    const data = await apiRequest(`/impact?${query}`);
+    select.replaceChildren();
+    const prompt = makeElement("option", "", data.targets.length ? "Select a definition" : "No Python or JavaScript definitions found");
+    prompt.value = "";
+    select.append(prompt);
+    let group;
+    let groupPath = "";
+    data.targets.forEach((target) => {
+      if (target.path !== groupPath) {
+        groupPath = target.path;
+        group = document.createElement("optgroup");
+        group.label = groupPath;
+        select.append(group);
+      }
+      const option = makeElement("option", "", `${target.name} · line ${target.start_line}`);
+      option.value = JSON.stringify(target);
+      group.append(option);
+    });
+    select.disabled = !data.targets.length;
+  } catch (error) {
+    select.replaceChildren(makeElement("option", "", "Could not load definitions"));
+    if (results) results.textContent = error.message;
+  }
+}
+
+function renderImpactResults(data) {
+  const container = document.querySelector("#impact-results");
+  const impact = data.potential_impact;
+  if (!container) return;
+  container.replaceChildren();
+  if (!impact) {
+    container.append(makeElement("p", "empty-repo-state", "Choose an indexed function or class to scan its potential impact."));
+    return;
+  }
+  const heading = makeElement("div", "impact-target-heading");
+  heading.append(makeElement("h3", "", `${impact.target.name} · ${impact.target.path}:${impact.target.start_line}`));
+  heading.append(makeElement("p", "action-target", `${data.repository} · indexed commit ${data.commit_sha}`));
+  container.append(heading);
+  const warning = makeElement("p", "action-connection impact-caveat", impact.limitations);
+  container.append(warning);
+  if (impact.matching_definition_count > 1) {
+    container.append(makeElement("p", "impact-ambiguity", `Found ${impact.matching_definition_count} definitions named ${impact.target.name}. These call sites may resolve to another definition.`));
+  }
+  const appendSites = (title, sites) => {
+    const section = makeElement("section", "impact-site-section");
+    section.append(makeElement("h3", "", `${title} (${sites.length})`));
+    if (!sites.length) section.append(makeElement("p", "action-target", "No matching static call sites were found in the indexed Python and JavaScript files."));
+    sites.forEach((site) => {
+      const item = makeElement("article", "impact-site");
+      const link = makeElement("a", "impact-site-link", `${site.path}:${site.line}`);
+      link.href = site.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      item.append(link, makeElement("span", "impact-caller", `Called from ${site.caller}`));
+      if (site.snippet) item.append(makeElement("code", "impact-snippet", site.snippet));
+      section.append(item);
+    });
+    container.append(section);
+  };
+  appendSites("Direct callers", impact.direct_callers);
+  appendSites("Likely affected tests", impact.likely_tests);
+}
+
+document.querySelector("#impact-repo")?.addEventListener("change", loadImpactTargets);
+document.querySelector("#impact-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const repoId = document.querySelector("#impact-repo")?.value;
+  const selected = document.querySelector("#impact-target")?.value;
+  const container = document.querySelector("#impact-results");
+  if (!repoId || !selected) return;
+  const target = JSON.parse(selected);
+  const query = new URLSearchParams({
+    repo_id: repoId, path: target.path, symbol: target.name, start_line: String(target.start_line),
+  });
+  if (container) container.textContent = "Scanning indexed call sites…";
+  try {
+    renderImpactResults(await apiRequest(`/impact?${query}`));
+  } catch (error) {
+    if (container) container.textContent = error.message;
+  }
+});
 
 async function approveAction(proposal, button) {
   button.disabled = true;
@@ -814,6 +940,7 @@ async function loadRepositories() {
   const guideSelect = document.querySelector("#guide-repo");
   const issuesSelect = document.querySelector("#issues-repo");
   const changesSelect = document.querySelector("#changes-repo");
+  const impactSelect = document.querySelector("#impact-repo");
   const actionSelect = document.querySelector("#action-repo");
   const evaluationSelect = document.querySelector("#evaluation-repo");
   const assistantSelect = document.querySelector("#assistant-repo");
@@ -871,7 +998,7 @@ async function loadRepositories() {
       if (repositories.some((repo) => repo.id === previouslySelected)) changesSelect.value = previouslySelected;
     }
   }
-  [actionSelect, evaluationSelect].forEach((target) => {
+  [actionSelect, evaluationSelect, impactSelect].forEach((target) => {
     if (!target) return;
     const previouslySelected = target.value;
     target.replaceChildren();
@@ -892,6 +1019,7 @@ async function loadRepositories() {
       setDashboardMessage(error.message, true);
     }
   }
+  if (impactSelect?.value) loadImpactTargets();
   if (assistantSelect) {
     const previouslySelected = assistantSelect.value;
     assistantSelect.replaceChildren();
@@ -902,6 +1030,7 @@ async function loadRepositories() {
     repositories.forEach((repo) => assistantSelect.append(repoOption(repo)));
     if (repositories.some((repo) => repo.id === previouslySelected)) assistantSelect.value = previouslySelected;
   }
+  renderAskHistory(select?.value, true);
   if (!list) return;
   list.replaceChildren();
   if (!repositories.length) {
@@ -1235,6 +1364,65 @@ function renderAnswer(result) {
   }
 }
 
+function askConversationContext(repoId) {
+  const turns = askConversations.get(repoId) || [];
+  return turns.slice(-3).flatMap((turn) => {
+    const references = (turn.result.claims || []).flatMap((claim) => claim.citations || []).map((citation) => citation.path);
+    const answer = [turn.result.answer, ...references].filter(Boolean).join("\n").slice(0, 1000);
+    return [
+      { role: "user", content: turn.question.slice(0, 1000) },
+      { role: "assistant", content: answer || "No answer text was returned." },
+    ];
+  });
+}
+
+function renderAskHistory(repoId, showLatest = false) {
+  const container = document.querySelector("#ask-conversation");
+  const reset = document.querySelector("#ask-reset");
+  if (!container) return;
+  const turns = askConversations.get(repoId) || [];
+  if (reset) reset.disabled = !turns.length;
+  container.replaceChildren();
+  const visibleTurns = showLatest ? turns : turns.slice(0, -1);
+  if (!visibleTurns.length) return;
+  container.append(makeElement("h3", "ask-history-heading", "Earlier in this repository conversation"));
+  visibleTurns.forEach((turn) => {
+    const card = makeElement("article", "ask-history-turn");
+    card.append(makeElement("p", "ask-history-question", turn.question));
+    card.append(makeElement("p", "ask-history-answer", turn.result.answer));
+    const links = document.createElement("div");
+    links.className = "claim-citations";
+    const seen = new Set();
+    (turn.result.claims || []).flatMap((claim) => claim.citations || []).forEach((citation) => {
+      const key = citation.url;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      const link = makeElement("a", "", citation.start_line && citation.end_line
+        ? `${citation.path} · L${citation.start_line}–${citation.end_line}` : citation.path);
+      link.href = citation.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      links.append(link);
+    });
+    if (links.childNodes.length) card.append(links);
+    container.append(card);
+  });
+}
+
+document.querySelector("#ask-repo")?.addEventListener("change", (event) => {
+  document.querySelector("#answer-result")?.replaceChildren();
+  renderAskHistory(event.currentTarget.value, true);
+});
+
+document.querySelector("#ask-reset")?.addEventListener("click", () => {
+  const repoId = document.querySelector("#ask-repo")?.value;
+  if (!repoId) return;
+  askConversations.delete(repoId);
+  document.querySelector("#answer-result")?.replaceChildren();
+  renderAskHistory(repoId, true);
+  setDashboardMessage("Started over. This repository conversation has been cleared.");
+});
+
 document.querySelector("#ask-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1251,9 +1439,20 @@ document.querySelector("#ask-form")?.addEventListener("submit", async (event) =>
   try {
     const result = await apiRequest("/ask", {
       method: "POST",
-      body: JSON.stringify({ repo_id: repoId, question, ...(explanationLanguage ? { explanation_language: explanationLanguage } : {}) }),
+      body: JSON.stringify({
+        repo_id: repoId,
+        question,
+        context: askConversationContext(repoId),
+        ...(explanationLanguage ? { explanation_language: explanationLanguage } : {}),
+      }),
     });
-    renderAnswer(result);
+    const turns = askConversations.get(repoId) || [];
+    turns.push({ question, result });
+    askConversations.set(repoId, turns.slice(-3));
+    if (document.querySelector("#ask-repo")?.value === repoId) {
+      renderAskHistory(repoId);
+      renderAnswer(result);
+    }
     setDashboardMessage("");
   } catch (error) {
     setDashboardMessage(error.message, true);

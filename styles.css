@@ -342,6 +342,13 @@ body.app-mode .site-header, body.app-mode > main, body.app-mode .site-footer { d
 .ask-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 16px; }
 .ask-form-footer > span { color: #8c958b; font-size: 9px; }
 .ask-form-footer .button { flex: 0 0 auto; cursor: pointer; }
+.ask-controls { display: flex; gap: 8px; align-items: center; }
+.ask-controls .button:disabled { cursor: not-allowed; opacity: .45; }
+.ask-conversation { max-width: 800px; margin-top: 17px; }
+.ask-history-heading { margin: 0 0 8px; color: #778578; font: 7px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.ask-history-turn { margin-bottom: 8px; padding: 12px 15px; border: 1px solid #dce1d7; background: #f5f6f0; }
+.ask-history-question { margin: 0; color: #69796b; font-size: 8px; font-weight: 600; line-height: 1.65; }
+.ask-history-answer { margin: 7px 0 0; color: #46584b; font-size: 9px; line-height: 1.7; white-space: pre-wrap; }
 .answer-result { max-width: 800px; margin-top: 17px; }
 .answer-result-summary { padding: 15px 17px; background: #e8ede2; color: #425d48; font: 500 11px/1.7 var(--display); }
 .answer-result-summary.mode-refusal { background: #f1e9dd; color: #806444; }
@@ -459,6 +466,30 @@ body.app-mode .site-header, body.app-mode > main, body.app-mode .site-footer { d
 .action-result-line a { color: #567854; text-decoration: underline; }
 .action-result-verification { color: #8b7148; font-size: 8px; line-height: 1.6; }
 .action-result-verification.is-confirmed { color: #55724f; }
+.action-timeline { margin-top: 14px; padding: 12px; border: 1px solid #e2e6dd; background: #f6f7f2; }
+.action-timeline h4 { margin: 0 0 8px; color: #405944; font: 600 8px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.action-event { position: relative; display: grid; grid-template-columns: minmax(110px, .7fr) 1.3fr; gap: 3px 12px; padding: 7px 0 7px 12px; border-left: 1px solid #cbd5c6; color: #526352; font-size: 8px; }
+.action-event::before { position: absolute; top: 10px; left: -4px; width: 7px; height: 7px; border-radius: 50%; background: #829b6f; content: ""; }
+.action-event strong { color: #405944; text-transform: capitalize; }
+.action-event time { color: #808d81; font: 7px var(--mono); }
+.action-event p { grid-column: 1 / -1; margin: 2px 0 0; line-height: 1.6; }
+.action-event .action-event-readback { color: #8b7148; }
+.action-event .action-event-readback.is-confirmed { color: #55724f; }
+.impact-caveat { margin-top: 0; border-left-color: #bd9a6d; background: #f1ede3; color: #796b54; }
+.impact-form { max-width: 940px; }
+.impact-results { max-width: 1050px; margin-top: 18px; }
+.impact-target-heading { padding: 15px; border: 1px solid #dce1d7; background: #fafaf5; }
+.impact-target-heading h3 { margin: 0; color: #344d3d; font: 600 14px/1.4 var(--display); overflow-wrap: anywhere; }
+.impact-target-heading p { margin-bottom: 0; }
+.impact-ambiguity { margin: 10px 0; padding: 10px 12px; border-left: 2px solid #bd9a6d; background: #f1ede3; color: #796b54; font-size: 8px; line-height: 1.65; }
+.impact-site-section { margin-top: 14px; border: 1px solid #dce1d7; background: #fafaf5; }
+.impact-site-section h3 { margin: 0; padding: 11px 13px; border-bottom: 1px solid #e2e6dd; color: #405944; font: 600 9px var(--mono); text-transform: uppercase; }
+.impact-site-section > p { padding: 0 13px; }
+.impact-site { display: grid; grid-template-columns: minmax(170px, .7fr) 1fr; gap: 6px 14px; padding: 10px 13px; border-bottom: 1px solid #e8ebe4; }
+.impact-site:last-child { border-bottom: 0; }
+.impact-site-link { color: #567854; font: 8px var(--mono); text-decoration: underline; overflow-wrap: anywhere; }
+.impact-caller { color: #708071; font-size: 8px; }
+.impact-snippet { grid-column: 1 / -1; overflow: auto; color: #526352; font: 8px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .benchmark-meta { color: #8a948a; font: 7px/1.7 var(--mono); }
 .benchmark-score-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; margin-top: 12px; }
 .benchmark-score-card { min-width: 0; padding: 14px; border: 1px solid #dce1d7; background: #fafaf5; }

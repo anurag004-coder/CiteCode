@@ -415,6 +415,55 @@ class FeatureRegressionTests(unittest.TestCase):
         self.assertEqual(db.get_github_proposal(proposal_id)["status"], "completed")
         self.assertEqual(github_call.call_count, 2)
 
+    def test_action_audit_events_capture_lifecycle_and_readback_outcome(self):
+        repo = _seed_repository("action-audit")
+        payload = {"title": "Audit action", "body": "Review lifecycle events"}
+        proposal_id = "action-audit-regression"
+        payload_hash = github_actions.action_payload_hash(repo["id"], "issue", payload)
+        db.create_github_proposal({
+            "id": proposal_id,
+            "user_id": self.user["id"],
+            "repo_id": repo["id"],
+            "action_type": "issue",
+            "payload": payload,
+            "payload_hash": payload_hash,
+            "created_at": NOW,
+        })
+        db.approve_github_proposal(proposal_id, self.user["id"], payload_hash, NOW)
+        self.assertIsNotNone(db.claim_github_proposal(proposal_id, payload_hash))
+        db.finish_github_proposal(proposal_id, "completed", NOW, result={
+            "read_after_write_verified": False,
+            "verification_detail": "Saved issue body did not match.",
+        })
+        events = db.get_github_proposal(proposal_id)["events"]
+        self.assertEqual([event["event_type"] for event in events], [
+            "proposed", "approved", "execution_started", "completed",
+        ])
+        self.assertFalse(events[-1]["readback_verified"])
+        self.assertEqual(events[-1]["readback_detail"], "Saved issue body did not match.")
+
+    def test_ask_followup_context_is_used_to_retrieve_fresh_evidence(self):
+        repo = _seed_repository("ask-followup")
+        captured = {}
+
+        def retrieve(question, corpus, top_k):
+            captured["question"] = question
+            return [], False
+
+        with patch.object(main, "search", side_effect=retrieve):
+            response = self.client.post("/ask", json={
+                "repo_id": repo["id"],
+                "question": "Where is that called?",
+                "context": [
+                    {"role": "user", "content": "What does parse_auth_token do?"},
+                    {"role": "assistant", "content": "It returns the validated session."},
+                ],
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("parse_auth_token", captured["question"])
+        self.assertIn("Current question:", captured["question"])
+        self.assertIn("Where is that called?", captured["question"])
+
     def test_mcp_client_accepts_structured_success_result(self):
         @asynccontextmanager
         async def fake_stdio(server_parameters):
